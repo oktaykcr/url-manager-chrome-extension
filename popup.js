@@ -3,6 +3,8 @@ let currentPage = 1;
 let urls = [];
 let globalHeaders = {};
 
+document.getElementById('searchInput').focus();
+
 // URL'leri localStorage'dan yükleme
 function loadUrls() {
   chrome.storage.local.get(['urls'], function(result) {
