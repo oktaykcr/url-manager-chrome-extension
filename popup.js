@@ -593,8 +593,15 @@ document.getElementById('prevPage').addEventListener('click', () => {
 });
 
 document.getElementById('nextPage').addEventListener('click', () => {
-  currentPage++;
-  displayUrls();
+  chrome.storage.local.get(['urls'], function(result) {
+    const urls = result.urls || [];
+    const totalPages = Math.ceil(urls.length / ITEMS_PER_PAGE);
+    
+    if (currentPage < totalPages) {
+      currentPage++;
+      displayUrls();
+    }
+  });
 });
 
 // Arama işlemi
