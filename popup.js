@@ -3,8 +3,6 @@ let currentPage = 1;
 let urls = [];
 let globalHeaders = {};
 
-document.getElementById('searchInput').focus();
-
 // URL'leri localStorage'dan yükleme
 function loadUrls() {
   chrome.storage.local.get(['urls'], function(result) {
@@ -111,10 +109,16 @@ function displayUrls() {
       url.name.toLowerCase().includes(searchTerm)
     );
 
+    const totalPages = Math.ceil(filteredUrls.length / ITEMS_PER_PAGE);
+    
+    // Eğer mevcut sayfa, toplam sayfa sayısından büyükse düzelt
+    if (currentPage > totalPages) {
+      currentPage = totalPages;
+    }
+
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
     const urlsToShow = filteredUrls.slice(startIndex, endIndex);
-    const totalPages = Math.ceil(filteredUrls.length / ITEMS_PER_PAGE);
 
     const urlList = document.getElementById('urlList');
     urlList.innerHTML = '';
@@ -171,8 +175,8 @@ function displayUrls() {
     document.getElementById('totalLinks').textContent = `Links: ${filteredUrls.length}`;
     
     // Pagination butonlarını güncelle
-    document.getElementById('prevPage').disabled = currentPage === 1;
-    document.getElementById('nextPage').disabled = endIndex >= filteredUrls.length;
+    document.getElementById('prevPage').disabled = currentPage <= 1;
+    document.getElementById('nextPage').disabled = currentPage >= totalPages;
   });
 }
 
@@ -584,32 +588,6 @@ document.getElementById('deleteAll').addEventListener('click', () => {
   }
 });
 
-// Sayfalama işlemleri
-document.getElementById('prevPage').addEventListener('click', () => {
-  if (currentPage > 1) {
-    currentPage--;
-    displayUrls();
-  }
-});
-
-document.getElementById('nextPage').addEventListener('click', () => {
-  chrome.storage.local.get(['urls'], function(result) {
-    const urls = result.urls || [];
-    const totalPages = Math.ceil(urls.length / ITEMS_PER_PAGE);
-    
-    if (currentPage < totalPages) {
-      currentPage++;
-      displayUrls();
-    }
-  });
-});
-
-// Arama işlemi
-document.getElementById('searchInput').addEventListener('input', () => {
-  currentPage = 1;
-  displayUrls();
-});
-
 // Export işlemi
 document.getElementById('exportUrls').addEventListener('click', function() {
   // URL'leri ve global header'ları al
@@ -666,20 +644,6 @@ document.getElementById('importFile').addEventListener('change', function(e) {
   }
 });
 
-// Kopyalama işlevi
-function showCopyTooltip(x, y) {
-  const tooltip = document.createElement('div');
-  tooltip.className = 'copy-tooltip';
-  tooltip.textContent = 'Kopyalandı!';
-  tooltip.style.left = `${x}px`;
-  tooltip.style.top = `${y}px`;
-  document.body.appendChild(tooltip);
-  
-  setTimeout(() => {
-    tooltip.remove();
-  }, 1500);
-}
-
 // URL silme
 function deleteUrl(displayIndex, actualIndex) {
   chrome.storage.local.get(['urls'], function(result) {
@@ -726,6 +690,8 @@ function loadAndDisplayGlobalHeaders() {
 document.addEventListener('DOMContentLoaded', function() {
   loadUrls();
   loadGlobalHeaders();
+
+  document.getElementById('searchInput').focus();
   
   // Aktif tab'in URL'sini al
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
