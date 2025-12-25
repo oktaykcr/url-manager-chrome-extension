@@ -2,11 +2,28 @@ const ITEMS_PER_PAGE = 5;
 let currentPage = 1;
 let urls = [];
 let globalHeaders = {};
+let currentCategoryFilter = '';
 
 // URL'leri localStorage'dan yükleme
 function loadUrls() {
   chrome.storage.local.get(['urls'], function(result) {
     urls = result.urls || [];
+    
+    // Backward compatibility: Eğer category yoksa "Other" olarak ayarla
+    let needsUpdate = false;
+    urls = urls.map(url => {
+      if (!url.category) {
+        needsUpdate = true;
+        return { ...url, category: 'Other' };
+      }
+      return url;
+    });
+    
+    // Eğer category eklendiyse, storage'ı güncelle
+    if (needsUpdate) {
+      saveUrls();
+    }
+    
     displayUrls();
   });
 }
@@ -62,14 +79,99 @@ function saveGlobalHeadersFromUI() {
     }
   });
   
-  console.log('Saving global headers:', headers);
   chrome.storage.local.set({ globalHeaders: headers }, function() {
     if (chrome.runtime.lastError) {
       console.error('Error saving headers:', chrome.runtime.lastError);
-    } else {
-      console.log('Global headers saved successfully');
     }
   });
+}
+
+// Kategori listesini güncelle
+function updateCategoryList(urlList = null) {
+  // Eğer urlList verilmemişse global urls kullan
+  const urlsToUse = urlList || urls;
+  
+  const categories = new Set();
+  urlsToUse.forEach(url => {
+    if (url.category) {
+      categories.add(url.category);
+    }
+  });
+  
+  // Datalist'i güncelle (kategori input için - Add New Link formunda)
+  const categoryDatalist = document.getElementById('categoryList');
+  if (categoryDatalist) {
+    categoryDatalist.innerHTML = '';
+    categories.forEach(category => {
+      const option = document.createElement('option');
+      option.value = category;
+      categoryDatalist.appendChild(option);
+    });
+  }
+  
+  // Kategori dropdown'unu güncelle
+  updateCategoryDropdown(categories);
+}
+
+// Kategori dropdown'unu güncelle ve filtrele
+function updateCategoryDropdown(categories = null, filterText = '', urlList = null) {
+  if (categories === null) {
+    // Eğer urlList verilmemişse global urls kullan
+    const urlsToUse = urlList || urls;
+    
+    categories = new Set();
+    urlsToUse.forEach(url => {
+      if (url.category) {
+        categories.add(url.category);
+      }
+    });
+  }
+  
+  const dropdown = document.getElementById('categoryDropdown');
+  if (!dropdown) {
+    return;
+  }
+  
+  dropdown.innerHTML = '';
+  
+  // "All Categories" seçeneğini ekle
+  const allItem = document.createElement('div');
+  allItem.className = 'category-dropdown-item';
+  allItem.dataset.value = '';
+  allItem.textContent = 'All Categories';
+  if (!currentCategoryFilter) {
+    allItem.classList.add('selected');
+  }
+  dropdown.appendChild(allItem);
+  
+  // Kategorileri sırala ve filtrele (case insensitive)
+  const sortedCategories = Array.from(categories).sort();
+  const filterLower = filterText.toLowerCase();
+  const filteredCategories = filterText 
+    ? sortedCategories.filter(cat => cat.toLowerCase().includes(filterLower))
+    : sortedCategories;
+  
+  if (filteredCategories.length === 0 && filterText) {
+    const noResults = document.createElement('div');
+    noResults.className = 'category-dropdown-item no-results';
+    noResults.textContent = 'No categories found';
+    dropdown.appendChild(noResults);
+  } else {
+    filteredCategories.forEach(category => {
+      const item = document.createElement('div');
+      item.className = 'category-dropdown-item';
+      item.dataset.value = category;
+      item.textContent = category;
+      
+      // Case insensitive karşılaştırma
+      if (currentCategoryFilter && 
+          currentCategoryFilter.toLowerCase() === category.toLowerCase()) {
+        item.classList.add('selected');
+      }
+      
+      dropdown.appendChild(item);
+    });
+  }
 }
 
 // Global header'ları görüntüleme
@@ -101,13 +203,100 @@ function displayGlobalHeaders() {
 
 // URL'leri görüntüleme
 function displayUrls() {
-  const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+  const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
   
   chrome.storage.local.get(['urls'], function(result) {
-    const urls = result.urls || [];
-    const filteredUrls = urls.filter(url => 
-      url.name.toLowerCase().includes(searchTerm)
-    );
+    // Global urls değişkenini güncelle
+    urls = result.urls || [];
+    
+    // Backward compatibility: Eğer category yoksa "Other" olarak ayarla
+    let needsUpdate = false;
+    urls = urls.map(url => {
+      if (!url.category) {
+        needsUpdate = true;
+        return { ...url, category: 'Other' };
+      }
+      return url;
+    });
+    
+    // Eğer category eklendiyse, storage'ı güncelle
+    if (needsUpdate) {
+      saveUrls();
+    }
+    
+    // Kategori listesini güncelle (urls'i parametre olarak geç)
+    updateCategoryList(urls);
+    
+    // Filtreleme: arama ve kategori
+    const filteredUrls = urls.filter(url => {
+      // Arama filtresi - name, address veya category içinde ara (contains)
+      const matchesSearch = !searchTerm || 
+                           (url.name && url.name.toLowerCase().includes(searchTerm)) || 
+                           (url.address && url.address.toLowerCase().includes(searchTerm)) ||
+                           (url.category && url.category.toLowerCase().includes(searchTerm));
+      
+      // Kategori filtresi - case insensitive karşılaştırma
+      const matchesCategory = !currentCategoryFilter || 
+                             (url.category && url.category.toLowerCase() === currentCategoryFilter.toLowerCase());
+      
+      return matchesSearch && matchesCategory;
+    });
+    
+    // Arama varsa, sonuçları öncelik sırasına göre sırala
+    if (searchTerm) {
+      filteredUrls.sort((a, b) => {
+        const aName = (a.name || '').toLowerCase();
+        const bName = (b.name || '').toLowerCase();
+        const aAddress = (a.address || '').toLowerCase();
+        const bAddress = (b.address || '').toLowerCase();
+        const aCategory = (a.category || '').toLowerCase();
+        const bCategory = (b.category || '').toLowerCase();
+        
+        // Skorlama sistemi (düşük skor = daha önce)
+        let aScore = 999;
+        let bScore = 999;
+        
+        // İsim tam eşleşme (en yüksek öncelik)
+        if (aName === searchTerm) aScore = 0;
+        if (bName === searchTerm) bScore = 0;
+        
+        // İsim ile başlama
+        if (aScore > 0 && aName.startsWith(searchTerm)) aScore = 1;
+        if (bScore > 0 && bName.startsWith(searchTerm)) bScore = 1;
+        
+        // İsimde kelime başında eşleşme (örn: "tbp-console" için "console")
+        if (aScore > 1) {
+          const aWords = aName.split(/[-_\s]/);
+          if (aWords.some(word => word.startsWith(searchTerm))) aScore = 2;
+          if (aWords.some(word => word === searchTerm)) aScore = 1.5;
+        }
+        if (bScore > 1) {
+          const bWords = bName.split(/[-_\s]/);
+          if (bWords.some(word => word.startsWith(searchTerm))) bScore = 2;
+          if (bWords.some(word => word === searchTerm)) bScore = 1.5;
+        }
+        
+        // İsimde herhangi bir yerde eşleşme
+        if (aScore > 2 && aName.includes(searchTerm)) aScore = 3;
+        if (bScore > 2 && bName.includes(searchTerm)) bScore = 3;
+        
+        // URL'de eşleşme
+        if (aScore > 3 && aAddress.includes(searchTerm)) aScore = 4;
+        if (bScore > 3 && bAddress.includes(searchTerm)) bScore = 4;
+        
+        // Kategori eşleşme
+        if (aScore > 4 && aCategory.includes(searchTerm)) aScore = 5;
+        if (bScore > 4 && bCategory.includes(searchTerm)) bScore = 5;
+        
+        // Skor farkı varsa ona göre sırala
+        if (aScore !== bScore) {
+          return aScore - bScore;
+        }
+        
+        // Skor aynıysa alfabetik sırala
+        return aName.localeCompare(bName);
+      });
+    }
 
     const totalPages = Math.ceil(filteredUrls.length / ITEMS_PER_PAGE);
     
@@ -126,11 +315,15 @@ function displayUrls() {
     urlsToShow.forEach((url, index) => {
       const urlItem = document.createElement('div');
       urlItem.className = 'url-item';
+      const categoryBadge = url.category ? `<span class="category-badge">${url.category}</span>` : '';
       urlItem.innerHTML = `
         <div class="url-content">
-          <a class="url-link" href="#" data-url="${url.address}" data-type="${url.type}">
-            ${url.name}
-          </a>
+          <div class="url-info">
+            <a class="url-link" href="#" data-url="${url.address}" data-type="${url.type}">
+              ${url.name}
+            </a>
+            ${categoryBadge}
+          </div>
           <div class="url-buttons">
             <button class="small-icon-btn edit-btn" title="Edit">
               <svg viewBox="0 0 24 24" width="14" height="14">
@@ -186,6 +379,20 @@ function editUrl(url, displayIndex, actualIndex) {
   document.getElementById('nameInput').value = url.name;
   document.getElementById('urlInput').value = url.address;
   document.getElementById('requestType').value = url.type;
+  
+  const categoryValue = url.category || 'Other';
+  document.getElementById('categoryInput').value = categoryValue;
+  
+  // Kategori dropdown butonlarını güncelle
+  const clearCategoryInputBtn = document.getElementById('clearCategoryInput');
+  const toggleCategoryInputDropdownBtn = document.getElementById('toggleCategoryInputDropdown');
+  if (categoryValue) {
+    clearCategoryInputBtn.style.display = 'flex';
+    toggleCategoryInputDropdownBtn.style.display = 'none';
+  } else {
+    clearCategoryInputBtn.style.display = 'none';
+    toggleCategoryInputDropdownBtn.style.display = 'flex';
+  }
 
   // POST isteği ise body'yi göster
   if (url.type === 'POST') {
@@ -222,6 +429,7 @@ function cancelEdit() {
   // Form alanlarını temizle
   document.getElementById('nameInput').value = '';
   document.getElementById('urlInput').value = '';
+  document.getElementById('categoryInput').value = '';
   document.getElementById('requestBody').value = '';
   document.getElementById('postDetails').style.display = 'none';
 
@@ -240,12 +448,14 @@ document.getElementById('addUrl').addEventListener('click', function() {
   const name = document.getElementById('nameInput').value;
   const address = document.getElementById('urlInput').value;
   const type = document.getElementById('requestType').value;
+  const category = document.getElementById('categoryInput').value.trim() || 'Other';
 
   if (name && address) {
     const newUrl = {
       name: name,
       address: address,
-      type: type
+      type: type,
+      category: category
     };
 
     if (type === 'POST') {
@@ -262,7 +472,9 @@ document.getElementById('addUrl').addEventListener('click', function() {
     chrome.storage.local.get(['urls'], function(result) {
       let urls = result.urls || [];
       
-      if (document.getElementById('addUrl').dataset.editing === 'true') {
+      const isEditing = document.getElementById('addUrl').dataset.editing === 'true';
+      
+      if (isEditing) {
         // Güncelleme işlemi
         const editIndex = parseInt(document.getElementById('addUrl').dataset.editIndex);
         urls[editIndex] = newUrl;
@@ -284,8 +496,28 @@ document.getElementById('addUrl').addEventListener('click', function() {
         // Form alanlarını temizle
         document.getElementById('nameInput').value = '';
         document.getElementById('urlInput').value = '';
+        document.getElementById('categoryInput').value = '';
         document.getElementById('requestBody').value = '';
         document.getElementById('postDetails').style.display = 'none';
+        
+        // Kategori dropdown butonlarını sıfırla
+        const clearCategoryInputBtn = document.getElementById('clearCategoryInput');
+        const toggleCategoryInputDropdownBtn = document.getElementById('toggleCategoryInputDropdown');
+        if (clearCategoryInputBtn && toggleCategoryInputDropdownBtn) {
+          clearCategoryInputBtn.style.display = 'none';
+          toggleCategoryInputDropdownBtn.style.display = 'flex';
+        }
+        
+        // Eğer güncelleme işlemiyse accordion'u kapat
+        if (isEditing) {
+          const addNewLinkHeader = document.getElementById('addNewLinkHeader');
+          const addNewLinkContent = addNewLinkHeader.nextElementSibling;
+          
+          if (addNewLinkHeader.classList.contains('active')) {
+            addNewLinkHeader.classList.remove('active');
+            addNewLinkContent.style.maxHeight = null;
+          }
+        }
         
         // URL'leri yeniden göster
         loadUrls();
@@ -358,13 +590,6 @@ async function handleUrlClick(event) {
   const requestType = event.target.dataset.type;
   const urlData = urls.find(u => u.address === url && u.type === requestType);
 
-  console.log(`${requestType} Request to: ${url}`);
-  console.log('Request Details:', {
-    type: requestType,
-    url: url,
-    timestamp: new Date().toISOString()
-  });
-
   if (requestType === 'GET') {
     chrome.tabs.create({ url: url });
     console.groupEnd();
@@ -384,16 +609,8 @@ async function handleUrlClick(event) {
         fetchOptions.body = JSON.stringify(urlData.body);
       }
 
-      console.log('Request Headers:', fetchOptions.headers);
-      console.log('Request Body:', urlData.body || 'No body');
-
       const response = await fetch(url, fetchOptions);
       const data = await response.text();
-
-      console.log('Response Status:', response.status);
-      console.log('Response Headers:', Object.fromEntries(response.headers.entries()));
-      console.log('Response Body:', data);
-      console.groupEnd();
 
       // Yanıtı yeni sekmede göster
       const responseHtml = `
@@ -494,9 +711,6 @@ async function handleUrlClick(event) {
       chrome.tabs.create({ url: blobUrl });
 
     } catch (error) {
-      console.error('Error:', error);
-      console.groupEnd();
-      
       // Hata durumunda da yeni sekmede göster
       const errorHtml = `
         <!DOCTYPE html>
@@ -717,12 +931,425 @@ document.addEventListener('DOMContentLoaded', function() {
     currentPage = 1;
     displayUrls();
   });
+  
+  // Kategori filtresi için event listener'lar
+  const categoryFilterInput = document.getElementById('categoryFilter');
+  const clearCategoryBtn = document.getElementById('clearCategoryFilter');
+  const toggleDropdownBtn = document.getElementById('toggleCategoryDropdown');
+  const categoryDropdown = document.getElementById('categoryDropdown');
+  
+  let activeDropdownIndex = -1;
+  
+  // Dropdown'u aç/kapat
+  function toggleCategoryDropdown(show) {
+    if (show) {
+      // Storage'dan güncel urls'i al ve dropdown'u güncelle
+      chrome.storage.local.get(['urls'], function(result) {
+        let urlsFromStorage = result.urls || [];
+        
+        // Backward compatibility
+        urlsFromStorage = urlsFromStorage.map(url => {
+          if (!url.category) {
+            return { ...url, category: 'Other' };
+          }
+          return url;
+        });
+        
+        // Kategorileri çıkar
+        const categories = new Set();
+        urlsFromStorage.forEach(url => {
+          if (url.category) {
+            categories.add(url.category);
+          }
+        });
+        
+        // Dropdown içeriğini güncelle
+        updateCategoryDropdown(categories, categoryFilterInput.value);
+        
+        // Dropdown'u aç (içerik hazır olduktan sonra)
+        categoryDropdown.classList.add('show');
+        toggleDropdownBtn.classList.add('active');
+        categoryFilterInput.setAttribute('aria-expanded', 'true');
+      });
+    } else {
+      categoryDropdown.classList.remove('show');
+      toggleDropdownBtn.classList.remove('active');
+      categoryFilterInput.setAttribute('aria-expanded', 'false');
+      activeDropdownIndex = -1;
+    }
+  }
+  
+  // Input'a focus olduğunda dropdown'u aç
+  categoryFilterInput.addEventListener('focus', () => {
+    toggleCategoryDropdown(true);
+  });
+  
+  // Input event - kullanıcı yazarken (case insensitive filtreleme)
+  categoryFilterInput.addEventListener('input', (e) => {
+    const value = e.target.value;
+    
+    // Storage'dan güncel urls'i al ve dropdown'u güncelle
+    chrome.storage.local.get(['urls'], function(result) {
+      let urlsFromStorage = result.urls || [];
+      
+      // Backward compatibility
+      urlsFromStorage = urlsFromStorage.map(url => {
+        if (!url.category) {
+          return { ...url, category: 'Other' };
+        }
+        return url;
+      });
+      
+      // Kategorileri çıkar
+      const categories = new Set();
+      urlsFromStorage.forEach(url => {
+        if (url.category) {
+          categories.add(url.category);
+        }
+      });
+      
+      // Dropdown'u güncelle (case insensitive filtreleme)
+      updateCategoryDropdown(categories, value);
+    });
+    
+    // Dropdown'u göster
+    if (!categoryDropdown.classList.contains('show')) {
+      categoryDropdown.classList.add('show');
+      toggleDropdownBtn.classList.add('active');
+      categoryFilterInput.setAttribute('aria-expanded', 'true');
+    }
+    
+    // Clear button'u göster/gizle
+    if (value) {
+      clearCategoryBtn.style.display = 'flex';
+      toggleDropdownBtn.style.display = 'none';
+    } else {
+      clearCategoryBtn.style.display = 'none';
+      toggleDropdownBtn.style.display = 'flex';
+    }
+    
+    // Reset active index
+    activeDropdownIndex = -1;
+  });
+  
+  // Toggle button - dropdown'u aç/kapat
+  toggleDropdownBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = categoryDropdown.classList.contains('show');
+    toggleCategoryDropdown(!isOpen);
+    if (!isOpen) {
+      categoryFilterInput.focus();
+    }
+  });
+  
+  // Clear button
+  clearCategoryBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    categoryFilterInput.value = '';
+    currentCategoryFilter = '';
+    currentPage = 1;
+    clearCategoryBtn.style.display = 'none';
+    toggleDropdownBtn.style.display = 'flex';
+    displayUrls();
+    
+    // Storage'dan güncel urls'i al ve dropdown'u güncelle
+    chrome.storage.local.get(['urls'], function(result) {
+      let urlsFromStorage = result.urls || [];
+      
+      // Backward compatibility
+      urlsFromStorage = urlsFromStorage.map(url => {
+        if (!url.category) {
+          return { ...url, category: 'Other' };
+        }
+        return url;
+      });
+      
+      // Kategorileri çıkar
+      const categories = new Set();
+      urlsFromStorage.forEach(url => {
+        if (url.category) {
+          categories.add(url.category);
+        }
+      });
+      
+      updateCategoryDropdown(categories, '');
+    });
+    
+    categoryFilterInput.focus();
+  });
+  
+  // Dropdown item'lara tıklama
+  categoryDropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.category-dropdown-item');
+    if (item && !item.classList.contains('no-results')) {
+      const value = item.dataset.value;
+      categoryFilterInput.value = value;
+      currentCategoryFilter = value;
+      currentPage = 1;
+      
+      if (value) {
+        clearCategoryBtn.style.display = 'flex';
+        toggleDropdownBtn.style.display = 'none';
+      } else {
+        clearCategoryBtn.style.display = 'none';
+        toggleDropdownBtn.style.display = 'flex';
+      }
+      
+      displayUrls();
+      toggleCategoryDropdown(false);
+    }
+  });
+  
+  // Klavye navigasyonu
+  categoryFilterInput.addEventListener('keydown', (e) => {
+    const items = Array.from(categoryDropdown.querySelectorAll('.category-dropdown-item:not(.no-results)'));
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!categoryDropdown.classList.contains('show')) {
+        toggleCategoryDropdown(true);
+      }
+      activeDropdownIndex = Math.min(activeDropdownIndex + 1, items.length - 1);
+      updateActiveItem(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeDropdownIndex = Math.max(activeDropdownIndex - 1, 0);
+      updateActiveItem(items);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeDropdownIndex >= 0 && items[activeDropdownIndex]) {
+        items[activeDropdownIndex].click();
+      } else if (categoryFilterInput.value.trim()) {
+        // Enter'a basıldığında yazılan değeri filtre olarak uygula
+        currentCategoryFilter = categoryFilterInput.value.trim();
+        currentPage = 1;
+        displayUrls();
+        toggleCategoryDropdown(false);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      toggleCategoryDropdown(false);
+      categoryFilterInput.blur();
+    }
+  });
+  
+  // Active item'ı güncelle
+  function updateActiveItem(items) {
+    items.forEach((item, index) => {
+      item.classList.toggle('active', index === activeDropdownIndex);
+    });
+    
+    if (items[activeDropdownIndex]) {
+      items[activeDropdownIndex].scrollIntoView({ block: 'nearest' });
+    }
+  }
+  
+  // Dışarı tıklandığında dropdown'u kapat
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.category-filter-wrapper')) {
+      toggleCategoryDropdown(false);
+    }
+  });
+
+  // Form içindeki kategori dropdown için event listener'lar
+  const categoryInput = document.getElementById('categoryInput');
+  const clearCategoryInputBtn = document.getElementById('clearCategoryInput');
+  const toggleCategoryInputDropdownBtn = document.getElementById('toggleCategoryInputDropdown');
+  const categoryInputDropdown = document.getElementById('categoryInputDropdown');
+  
+  let activeCategoryInputDropdownIndex = -1;
+  
+  // Kategori input dropdown'unu güncelle
+  function updateCategoryInputDropdown(filterText = '') {
+    chrome.storage.local.get(['urls'], function(result) {
+      let urlsFromStorage = result.urls || [];
+      
+      // Backward compatibility
+      urlsFromStorage = urlsFromStorage.map(url => {
+        if (!url.category) {
+          return { ...url, category: 'Other' };
+        }
+        return url;
+      });
+      
+      // Kategorileri çıkar
+      const categories = new Set();
+      urlsFromStorage.forEach(url => {
+        if (url.category) {
+          categories.add(url.category);
+        }
+      });
+      
+      categoryInputDropdown.innerHTML = '';
+      
+      // "No Category" seçeneğini ekle
+      const noItem = document.createElement('div');
+      noItem.className = 'category-dropdown-item';
+      noItem.dataset.value = '';
+      noItem.textContent = 'No Category';
+      categoryInputDropdown.appendChild(noItem);
+      
+      // Kategorileri sırala ve filtrele (case insensitive)
+      const sortedCategories = Array.from(categories).sort();
+      const filterLower = filterText.toLowerCase();
+      const filteredCategories = filterText 
+        ? sortedCategories.filter(cat => cat.toLowerCase().includes(filterLower))
+        : sortedCategories;
+      
+      if (filteredCategories.length === 0 && filterText) {
+        const noResults = document.createElement('div');
+        noResults.className = 'category-dropdown-item no-results';
+        noResults.textContent = 'No categories found';
+        categoryInputDropdown.appendChild(noResults);
+      } else {
+        filteredCategories.forEach(category => {
+          const item = document.createElement('div');
+          item.className = 'category-dropdown-item';
+          item.dataset.value = category;
+          item.textContent = category;
+          categoryInputDropdown.appendChild(item);
+        });
+      }
+    });
+  }
+  
+  // Dropdown'u aç/kapat
+  function toggleCategoryInputDropdown(show) {
+    if (show) {
+      updateCategoryInputDropdown(categoryInput.value);
+      categoryInputDropdown.classList.add('show');
+      toggleCategoryInputDropdownBtn.classList.add('active');
+      categoryInput.setAttribute('aria-expanded', 'true');
+    } else {
+      categoryInputDropdown.classList.remove('show');
+      toggleCategoryInputDropdownBtn.classList.remove('active');
+      categoryInput.setAttribute('aria-expanded', 'false');
+      activeCategoryInputDropdownIndex = -1;
+    }
+  }
+  
+  // Input'a focus olduğunda dropdown'u aç
+  categoryInput.addEventListener('focus', () => {
+    toggleCategoryInputDropdown(true);
+  });
+  
+  // Input event - kullanıcı yazarken
+  categoryInput.addEventListener('input', (e) => {
+    const value = e.target.value;
+    
+    updateCategoryInputDropdown(value);
+    
+    // Dropdown'u göster
+    if (!categoryInputDropdown.classList.contains('show')) {
+      categoryInputDropdown.classList.add('show');
+      toggleCategoryInputDropdownBtn.classList.add('active');
+      categoryInput.setAttribute('aria-expanded', 'true');
+    }
+    
+    // Clear button'u göster/gizle
+    if (value) {
+      clearCategoryInputBtn.style.display = 'flex';
+      toggleCategoryInputDropdownBtn.style.display = 'none';
+    } else {
+      clearCategoryInputBtn.style.display = 'none';
+      toggleCategoryInputDropdownBtn.style.display = 'flex';
+    }
+    
+    activeCategoryInputDropdownIndex = -1;
+  });
+  
+  // Toggle button
+  toggleCategoryInputDropdownBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = categoryInputDropdown.classList.contains('show');
+    toggleCategoryInputDropdown(!isOpen);
+    if (!isOpen) {
+      categoryInput.focus();
+    }
+  });
+  
+  // Clear button
+  clearCategoryInputBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    categoryInput.value = '';
+    clearCategoryInputBtn.style.display = 'none';
+    toggleCategoryInputDropdownBtn.style.display = 'flex';
+    updateCategoryInputDropdown('');
+    categoryInput.focus();
+  });
+  
+  // Dropdown item'lara tıklama
+  categoryInputDropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.category-dropdown-item');
+    if (item && !item.classList.contains('no-results')) {
+      const value = item.dataset.value;
+      categoryInput.value = value;
+      
+      if (value) {
+        clearCategoryInputBtn.style.display = 'flex';
+        toggleCategoryInputDropdownBtn.style.display = 'none';
+      } else {
+        clearCategoryInputBtn.style.display = 'none';
+        toggleCategoryInputDropdownBtn.style.display = 'flex';
+      }
+      
+      toggleCategoryInputDropdown(false);
+    }
+  });
+  
+  // Klavye navigasyonu
+  categoryInput.addEventListener('keydown', (e) => {
+    const items = Array.from(categoryInputDropdown.querySelectorAll('.category-dropdown-item:not(.no-results)'));
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!categoryInputDropdown.classList.contains('show')) {
+        toggleCategoryInputDropdown(true);
+      }
+      activeCategoryInputDropdownIndex = Math.min(activeCategoryInputDropdownIndex + 1, items.length - 1);
+      updateActiveCategoryInputItem(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeCategoryInputDropdownIndex = Math.max(activeCategoryInputDropdownIndex - 1, 0);
+      updateActiveCategoryInputItem(items);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeCategoryInputDropdownIndex >= 0 && items[activeCategoryInputDropdownIndex]) {
+        items[activeCategoryInputDropdownIndex].click();
+      } else {
+        toggleCategoryInputDropdown(false);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      toggleCategoryInputDropdown(false);
+      categoryInput.blur();
+    }
+  });
+  
+  // Active item'ı güncelle
+  function updateActiveCategoryInputItem(items) {
+    items.forEach((item, index) => {
+      item.classList.toggle('active', index === activeCategoryInputDropdownIndex);
+    });
+    
+    if (items[activeCategoryInputDropdownIndex]) {
+      items[activeCategoryInputDropdownIndex].scrollIntoView({ block: 'nearest' });
+    }
+  }
+  
+  // Dışarı tıklandığında dropdown'u kapat
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.category-input-wrapper')) {
+      toggleCategoryInputDropdown(false);
+    }
+  });
 
   // Cancel butonu için event listener
   document.getElementById('cancelEdit').addEventListener('click', function() {
     // Form alanlarını temizle
     document.getElementById('nameInput').value = '';
     document.getElementById('urlInput').value = '';
+    document.getElementById('categoryInput').value = '';
     document.getElementById('requestBody').value = '';
     document.getElementById('postDetails').style.display = 'none';
 
@@ -734,6 +1361,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Cancel butonunu gizle
     document.getElementById('cancelEdit').style.display = 'none';
+    
+    // Kategori dropdown butonlarını sıfırla
+    clearCategoryInputBtn.style.display = 'none';
+    toggleCategoryInputDropdownBtn.style.display = 'flex';
+    
+    // Accordion'u kapat
+    const addNewLinkHeader = document.getElementById('addNewLinkHeader');
+    const addNewLinkContent = addNewLinkHeader.nextElementSibling;
+    
+    if (addNewLinkHeader.classList.contains('active')) {
+      addNewLinkHeader.classList.remove('active');
+      addNewLinkContent.style.maxHeight = null;
+    }
   });
 
   // Accordion işlevselliği

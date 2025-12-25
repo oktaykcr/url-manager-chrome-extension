@@ -13,6 +13,25 @@
         </svg>
         <input type="text" id="searchInput" placeholder="Search URL...">
       </div>
+      <div class="category-filter-wrapper">
+        <svg class="category-icon" viewBox="0 0 24 24" width="16" height="16">
+          <path fill="currentColor" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16zM16 17H5V7h11l3.55 5L16 17z"/>
+        </svg>
+        <input type="text" id="categoryFilter" placeholder="All Categories" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list">
+        <button type="button" id="clearCategoryFilter" class="clear-category-btn" title="Clear filter" style="display: none;">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+        <button type="button" id="toggleCategoryDropdown" class="dropdown-arrow-btn" title="Show categories">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path fill="currentColor" d="M7 10l5 5 5-5z"/>
+          </svg>
+        </button>
+        <div id="categoryDropdown" class="category-dropdown">
+          <div class="category-dropdown-item" data-value="">All Categories</div>
+        </div>
+      </div>
       <div class="menu-dropdown">
         <button class="menu-btn">
           <svg viewBox="0 0 24 24" width="24" height="24">
@@ -84,12 +103,32 @@
       </div>
       <div class="accordion-content">
         <div class="url-actions">
-          <div class="select-group">
-            <label for="requestType">Request Type</label>
-            <select id="requestType">
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-            </select>
+          <div class="input-group">
+            <label for="categoryInput">
+              <svg viewBox="0 0 24 24" width="12" height="12" style="vertical-align: middle; margin-right: 4px;">
+                <path fill="currentColor" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16zM16 17H5V7h11l3.55 5L16 17z"/>
+              </svg>
+              Category
+            </label>
+            <div class="category-input-wrapper">
+              <svg class="category-input-icon" viewBox="0 0 24 24" width="16" height="16">
+                <path fill="currentColor" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16zM16 17H5V7h11l3.55 5L16 17z"/>
+              </svg>
+              <input type="text" id="categoryInput" placeholder="Enter or select category..." autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list">
+              <button type="button" id="clearCategoryInput" class="clear-category-input-btn" title="Clear" style="display: none;">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+              </button>
+              <button type="button" id="toggleCategoryInputDropdown" class="dropdown-arrow-input-btn" title="Show categories">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M7 10l5 5 5-5z"/>
+                </svg>
+              </button>
+              <div id="categoryInputDropdown" class="category-input-dropdown">
+                <div class="category-dropdown-item" data-value="">No Category</div>
+              </div>
+            </div>
           </div>
 
           <div class="input-group">
@@ -100,6 +139,14 @@
           <div class="input-group">
             <label for="urlInput">URL</label>
             <input type="text" id="urlInput" placeholder="Enter URL...">
+          </div>
+
+          <div class="select-group">
+            <label for="requestType">Request Type</label>
+            <select id="requestType">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
           </div>
 
           <div id="postDetails" style="display: none;">
