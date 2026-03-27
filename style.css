@@ -5,6 +5,18 @@
   box-sizing: border-box;
 }
 
+.shortcut-bar {
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: #adb5bd;
+}
+
+#quickSearchShortcut {
+  font-family: 'SFMono-Regular', 'Consolas', monospace;
+  font-weight: 600;
+  color: #868e96;
+}
+
 input[type="text"] {
   width: 100%;
   margin-bottom: 10px;

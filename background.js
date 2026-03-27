@@ -122,6 +122,27 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
 
 // Mesaj dinleyicisi ekle
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Quick Search: yeni sekmede URL aç
+  if (request.action === 'quickSearch_openTab') {
+    chrome.tabs.create({ url: request.url });
+    return;
+  }
+
+  // Quick Search: POST isteği gönder
+  if (request.action === 'quickSearch_post') {
+    chrome.storage.local.get(['globalHeaders'], (result) => {
+      const gHeaders = result.globalHeaders || {};
+      fetch(request.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...gHeaders },
+        body: JSON.stringify(request.body || {})
+      })
+      .then((r) => sendResponse({ success: true, status: r.status }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true; // async
+  }
+
   if (request.action === 'getUrl') {
     const headers = {
       ...globalHeaders,

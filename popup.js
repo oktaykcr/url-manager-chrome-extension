@@ -1415,4 +1415,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // Versiyon bilgisini al ve göster
   const manifest = chrome.runtime.getManifest();
   document.getElementById('versionInfo').textContent = `v${manifest.version}`;
+
+  // Quick Search kısayol metnini platforma göre ayarla
+  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  document.getElementById('quickSearchShortcut').textContent = isMac ? '⌘⇧U' : 'Ctrl+Shift+U';
 }); 
